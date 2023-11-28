@@ -186,8 +186,7 @@ mod RAFT is
                             (votedFor[S0]: null)
                             (network:  if (U > T or (VB == null and U == T))
                                         then (msg(S0, S1, requestVoteResponse(U, true)) NW) 
-                                        else (msg(S0, S1, requestVoteResponse(U, false)) NW))
-                            OCs}
+                                        else (msg(S0, S1, requestVoteResponse(U, false)) NW) fi ) OCs}
                             if T <= maxTerm .
 
   --- [candidate/leader receive vote]:
@@ -199,19 +198,17 @@ mod RAFT is
                             (votedFor[S0]: if U > T then empty else VF0 fi)
                             (network:  if (U > T)
                                         then (msg(S0, S1, requestVoteResponse(U, true)) NW)
-                                        else (msg(S0, S1, requestVoteResponse(U, false)) NW)) 
-                            OCs}
+                                        else (msg(S0, S1, requestVoteResponse(U, false)) NW) fi ) OCs}
                             if T <= maxTerm and (R == candidate or R == leader).
 
 --- [candidate received majority reponse]: change your role to leader
   crl [recvMajorityResponse] : {(term[S0]: T) (role[S0]: candidate) (votedBy[S0]: VB) (votedFor[S0]: VF0) 
                             (network: (msg(S1, S0, requestVoteResponse(U, B)) NW)) OCs} =>
                             {(term[S0]: T)
-                                (role[S0]: if length(VF1) >= majority then leader else R fi)
+                                (role[S0]: if length(VF1) >= majority then leader else candidate fi)
                                 (votedBy[S0]: if length(VF1) >= majority then null else VB fi)
                                 (votedFor[S0]: if length(VF1) >= majority then empty else VF1 fi)
-                                (network: if length(VF1) >= majority (msg(S1, S0, requestVoteResponse(U, B)) NW)) 
-                            OCs}
+                                (network: (msg(S1, S0, requestVoteResponse(U, B)) NW)) OCs}
                             if T <= maxTerm
                             /\ VF1 := if T == U and B == true then (VF0 S1) else VF0 fi .
 
@@ -229,18 +226,8 @@ mod RAFT is
                                     (role[S0]: if U >= T then follower else R fi)
                                     (votedBy[S0]: if U >= T then null else VB fi) 
                                     (votedFor[S0]: if U >= T then empty else VF0 fi)
-                                    (network: if U >= T NW)
-                                    OCs}
+                                    (network: if U >= T then NW else (msg(S1, S0, appendEntriesRequest(U, S1)) NW) fi ) OCs}
                                     if T <= maxTerm .
-                                     
---- ---   [send ]
----   crl [handleAppendEntriesResponse] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0)
----                                        (network: (msg(S1, S0, appendEntriesResponse(U, B)) NW)) OCs} =>
----                                       {(term[S0]: if U > T then U else T fi) (role[S0]: if U > T then follower else R fi)
----                                        (votedBy[S0]: if U > T then null else VB fi) (votedFor[S0]: if U > T then empty else VF0 fi)
----                                        (network: (msg(S1, S0, appendEntriesResponse(U, B)) NW)) OCs}
----                                       if T <= maxTerm .
-endm
-
+endm                                   
 --- search [1] in RAFT : init =>* {(role[S0]: leader) OCs} .
 --- search [1] in RAFT : init =>* {(term[S0]: T) (term[S1]: T) (role[S0]: leader) (role[S1]: leader) OCs} .
