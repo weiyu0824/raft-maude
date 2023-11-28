@@ -166,63 +166,81 @@ mod RAFT is
   var NW : Soup{Msg} .
   var OCs : Soup{OCom} .
 
-  --- [follower timeout]: change role to cadidate 
-  crl [timeout] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0) OCs} =>
-                  {(term[S0]: T + 1) (role[S0]: candidate) (votedBy[S0]: S0) (votedFor[S0]: S0) OCs}
-                  if (R == follower or R == candidate) and T < maxTerm .
-  --- [candidate timeout]: send vote request to everyone
-  crl [requestVote] : {(term[S0]: T) (role[S0]: candidate) (servers: Ss) (network: NW) OCs} =>
-                      {(term[S0]: T) (role[S0]: candidate) (servers: Ss)
-                       (network: (NW mkRequestVoteRequests(S0, requestVoteRequest(T, S0), Ss - S0))) OCs}
-                      if T <= maxTerm .
+  --- [follower timeout]: change role to cadidate
+  crl [followerTimeout] : {(term[S0]: T) (role[S0]: follower) OCs} =>
+                        {(term[S0]: T) (role[S0]: candidate) OCs}
+                        if T <= maxTerm .
 
-  crl [appendEntriesWithEmptyLog] : {(term[S0]: T) (role[S0]: leader) (servers: Ss) (network: NW) OCs} =>
-                                    {(term[S0]: T) (role[S0]: leader) (servers: Ss)
-                                    (network:(NW mkAppendEntriesRequests(S0, appendEntriesRequest(T, S0), Ss - S0))) OCs}
-                                    if T <= maxTerm .
+  --- [candidate timeout]: send vote request to everyone, term + 1
+  crl [cadidateTimeout] : {(term[S0]: T) (role[S0]: candidate) (servers: Ss) (votedBy[S0]: VB) (votedFor[S0]: VF0) (network: NW) OCs} =>
+                      {(term[S0]: T + 1) (role[S0]: candidate) (servers: Ss) (votedBy[S0]: S0) (votedFor[S0]: S0)
+                       (network: (NW mkRequestVoteRequests(S0, requestVoteRequest(T + 1, S0), Ss - S0))) OCs}
+                      if T + 1 <= maxTerm .
 
---- 
-  crl [handleRequestVoteRequest] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0)
-                                    (network: (msg(S1, S0, requestVoteRequest(U, S1)) NW)) OCs} =>
-                                   {(term[S0]: if U > T then U else T fi) (role[S0]: if U > T then follower else R fi) 
-                                    (votedBy[S0]: if ((VB == null or VB == S1) and U >= T) then S1 else VB fi)
-                                    (votedFor[S0]: if U > T then empty else VF0 fi)
-                                    (network:  if ((VB == null or VB == S1) and U >= T)
-                                               then (msg(S1, S0, requestVoteRequest(U, S1)) NW
-                                                     msg(S0, S1, requestVoteResponse(U, true)))
-                                               else (msg(S1, S0, requestVoteRequest(U, S1)) NW
-                                                     msg(S0, S1, requestVoteResponse((if  U > T then U else T fi), false))) fi) OCs}
-                                   if T <= maxTerm .
---- [received majority]
-  crl [handleRequestVoteResponse] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0) (network: (msg(S1, S0, requestVoteResponse(U, B)) NW)) OCs} =>
-                                    {(term[S0]: if U > T then U else T fi)
-                                     (role[S0]: if U > T
-                                                then follower
-                                                else (if length(VF1) >= majority then leader else R fi) fi)
-                                     (votedBy[S0]: if U > T then null else VB fi)
-                                     (votedFor[S0]: if U > T then empty else VF1 fi)
-                                     (network:  (msg(S1, S0, requestVoteResponse(U, B)) NW)) OCs}
-                                    if T <= maxTerm
-                                    /\ VF1 := if T == U and B == true and R == candidate then (VF0 S1) else VF0 fi .
+  --- [follower receive vote]:
+  crl [followerRecvVoteRequest] : {(term[S0]: T) (role[S0]: follower) (votedBy[S0]: VB) (votedFor[S0]: null)
+                            (network: (msg(S1, S0, requestVoteRequest(U, S1)) NW)) OCs} =>
+                            {(term[S0]: if U > T then U else T fi) 
+                            (role[S0]: follower) 
+                            (votedBy[S0]: if (U > T or (VB == null and U == T)) then S1 else VB fi)
+                            (votedFor[S0]: null)
+                            (network:  if (U > T or (VB == null and U == T))
+                                        then (msg(S0, S1, requestVoteResponse(U, true)) NW) 
+                                        else (msg(S0, S1, requestVoteResponse(U, false)) NW))
+                            OCs}
+                            if T <= maxTerm .
 
+  --- [candidate/leader receive vote]:
+  crl [candidate&LeaderRecvVoteRequest] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0)
+                            (network: (msg(S1, S0, requestVoteRequest(U, S1)) NW)) OCs} =>
+                            {(term[S0]: if U > T then U else T fi) 
+                            (role[S0]: if U > T then follower else R fi) 
+                            (votedBy[S0]: if U > T then S1 else VB fi)
+                            (votedFor[S0]: if U > T then empty else VF0 fi)
+                            (network:  if (U > T)
+                                        then (msg(S0, S1, requestVoteResponse(U, true)) NW)
+                                        else (msg(S0, S1, requestVoteResponse(U, false)) NW)) 
+                            OCs}
+                            if T <= maxTerm and (R == candidate or R == leader).
+
+--- [candidate received majority reponse]: change your role to leader
+  crl [recvMajorityResponse] : {(term[S0]: T) (role[S0]: candidate) (votedBy[S0]: VB) (votedFor[S0]: VF0) 
+                            (network: (msg(S1, S0, requestVoteResponse(U, B)) NW)) OCs} =>
+                            {(term[S0]: T)
+                                (role[S0]: if length(VF1) >= majority then leader else R fi)
+                                (votedBy[S0]: if length(VF1) >= majority then null else VB fi)
+                                (votedFor[S0]: if length(VF1) >= majority then empty else VF1 fi)
+                                (network: if length(VF1) >= majority (msg(S1, S0, requestVoteResponse(U, B)) NW)) 
+                            OCs}
+                            if T <= maxTerm
+                            /\ VF1 := if T == U and B == true then (VF0 S1) else VF0 fi .
+
+--- [leader send leader request] 
+  crl [leaderSendLeaderRequest] : {(term[S0]: T) (role[S0]: leader) (servers: Ss) (network: NW) OCs} =>
+                                {(term[S0]: T) (role[S0]: leader) (servers: Ss)
+                                (network:(NW mkAppendEntriesRequests(S0, appendEntriesRequest(T, S0), Ss - S0))) OCs}
+                                if T <= maxTerm .
+
+
+--- [all recv leader request] 
   crl [handleAppendEntriesRequest] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0)
-                                      (network: (msg(S1, S0, appendEntriesRequest(U, S1)) NW)) OCs} =>
-                                     {(term[S0]: if U > T then U else T fi) (role[S0]: if U >= T then follower else R fi)
-                                      (votedBy[S0]: if U > T then null else VB fi) (votedFor[S0]: if U > T then empty else VF0 fi)
-                                      (network:  if U > T
-                                                 then (msg(S1, S0, appendEntriesRequest(U, S1)) NW
-                                                       msg(S0, S1, appendEntriesResponse(U, false)))
-                                                 else (msg(S1, S0, appendEntriesRequest(U, S1)) NW
-                                                       msg(S0, S1, appendEntriesResponse(T, true))) fi) OCs}
-                                     if T <= maxTerm .
+                                    (network: (msg(S1, S0, appendEntriesRequest(U, S1)) NW)) OCs} =>
+                                    {(term[S0]: if U >= T then U else T fi) 
+                                    (role[S0]: if U >= T then follower else R fi)
+                                    (votedBy[S0]: if U >= T then null else VB fi) 
+                                    (votedFor[S0]: if U >= T then empty else VF0 fi)
+                                    (network: if U >= T NW)
+                                    OCs}
+                                    if T <= maxTerm .
                                      
-  crl [handleAppendEntriesResponse] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0)
-                                       (network: (msg(S1, S0, appendEntriesResponse(U, B)) NW)) OCs} =>
-                                      {(term[S0]: if U > T then U else T fi) (role[S0]: if U > T then follower else R fi)
-                                       (votedBy[S0]: if U > T then null else VB fi) (votedFor[S0]: if U > T then empty else VF0 fi)
-                                       (network: (msg(S1, S0, appendEntriesResponse(U, B)) NW)) OCs}
-                                      if T <= maxTerm .
+--- ---   [send ]
+---   crl [handleAppendEntriesResponse] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0)
+---                                        (network: (msg(S1, S0, appendEntriesResponse(U, B)) NW)) OCs} =>
+---                                       {(term[S0]: if U > T then U else T fi) (role[S0]: if U > T then follower else R fi)
+---                                        (votedBy[S0]: if U > T then null else VB fi) (votedFor[S0]: if U > T then empty else VF0 fi)
+---                                        (network: (msg(S1, S0, appendEntriesResponse(U, B)) NW)) OCs}
+---                                       if T <= maxTerm .
 endm
 
-search [1] in RAFT : init =>* {(role[S0]: leader) OCs} .
-search [1] in RAFT : init =>* {(term[S0]: T) (term[S1]: T) (role[S0]: leader) (role[S1]: leader) OCs} .
+--- search [1] in RAFT : init =>* {(role[S0]: leader) OCs} .
+--- search [1] in RAFT : init =>* {(term[S0]: T) (term[S1]: T) (role[S0]: leader) (role[S1]: leader) OCs} .
