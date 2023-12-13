@@ -1,0 +1,233 @@
+fmod SOUP {D :: TRIV} is
+  pr NAT .
+  sort Soup{D} .
+  subsort D$Elt < Soup{D} .
+  op empty : -> Soup{D} [ctor] .
+  op _ _ : Soup{D} Soup{D} -> Soup{D} [ctor assoc comm id: empty] .
+  op _\in_ : D$Elt Soup{D} -> Bool .
+  op length : Soup{D} -> Nat .
+  op _ - _ : Soup{D} D$Elt -> Soup{D} .
+  var E : D$Elt .
+  var S : Soup{D} .
+  eq E E = E .
+  eq E \in E S = true .
+  eq E \in S = false [owise] .
+  eq length(empty) = 0 .
+  eq length((E S)) = length(S) + 1 .
+  eq (E S) - E = S .
+  eq S - E = S [owise] .
+endfm
+
+fmod ROLE is
+  sort Role .
+  sorts Leader Candidate Follower .
+  subsorts Leader Candidate Follower < Role .
+  op leader : -> Leader [ctor] .
+  op candidate : -> Candidate [ctor] .
+  op follower : -> Follower [ctor] .
+endfm
+
+fmod SERVER-ID is
+  sort ServerID .
+  ops null s0 s1 s2 : -> ServerID [ctor] .
+endfm
+
+view ServerID from TRIV to SERVER-ID is
+  sort Elt to ServerID .
+endv
+
+fmod REQUEST-VOTE-REQUEST is
+  pr NAT .
+  pr SERVER-ID .
+  sort RequestVoteRequest .
+  op requestVoteRequest : Nat ServerID -> RequestVoteRequest [ctor] .
+  op term : RequestVoteRequest -> Nat .
+  op candidateID : RequestVoteRequest -> ServerID .
+  var T : Nat .
+  var I : ServerID .
+  eq term(requestVoteRequest(T, I)) = T .
+  eq candidateID(requestVoteRequest(T, I)) = I .
+endfm
+
+fmod REQUEST-VOTE-RESPONSE is
+  pr NAT .
+  sort RequestVoteResponse .
+  op requestVoteResponse : Nat Bool -> RequestVoteResponse [ctor] .
+  op term : RequestVoteResponse -> Nat .
+  op voteGranted : RequestVoteResponse -> Bool .
+  var T : Nat .
+  var B : Bool .
+  eq term(requestVoteResponse(T, B)) = T .
+  eq voteGranted(requestVoteResponse(T, B)) = B .
+endfm
+
+fmod APPEND-ENTRIES-REQUEST is
+  pr NAT .
+  pr SERVER-ID .
+  sort AppendEntriesRequest .
+  op appendEntriesRequest : Nat ServerID -> AppendEntriesRequest [ctor] .
+  op term : AppendEntriesRequest -> Nat .
+  op leaderID : AppendEntriesRequest -> ServerID .
+  var T : Nat .
+  var I : ServerID .
+  eq term(appendEntriesRequest(T, I)) = T .
+  eq leaderID(appendEntriesRequest(T, I)) = I .
+endfm
+
+fmod APPEND-ENTRIES-RESPONSE is
+  pr NAT .
+  sort AppendEntriesResponse .
+  op appendEntriesResponse : Nat Bool -> AppendEntriesResponse [ctor] .
+  op term : AppendEntriesResponse -> Nat .
+  op success : AppendEntriesResponse -> Bool .
+  var T : Nat .
+  var B : Bool .
+  eq term(appendEntriesResponse(T, B)) = T .
+  eq success(appendEntriesResponse(T, B)) = B .
+endfm
+
+fmod MESSAGE is
+  pr REQUEST-VOTE-REQUEST .
+  pr REQUEST-VOTE-RESPONSE .
+  pr APPEND-ENTRIES-REQUEST .
+  pr APPEND-ENTRIES-RESPONSE .
+  sort Msg .
+  op msg : ServerID ServerID RequestVoteRequest -> Msg [ctor] .
+  op msg : ServerID ServerID RequestVoteResponse -> Msg [ctor] .
+  op msg : ServerID ServerID AppendEntriesRequest -> Msg [ctor] .
+  op msg : ServerID ServerID AppendEntriesResponse -> Msg [ctor] .
+endfm
+
+view Msg from TRIV to MESSAGE is
+  sort Elt to Msg .
+endv
+
+fmod NETWORK is
+  pr SOUP{ServerID} .
+  pr SOUP{Msg} .
+  op mkRequestVoteRequests : ServerID RequestVoteRequest Soup{ServerID} -> Soup{Msg} .
+  op mkAppendEntriesRequests : ServerID AppendEntriesRequest Soup{ServerID} -> Soup{Msg} .
+  vars S0 S1 : ServerID .
+  var Ss : Soup{ServerID} .
+  var RVReq : RequestVoteRequest .
+  var AEReq : AppendEntriesRequest .
+  eq mkRequestVoteRequests(S0, RVReq, empty) = empty .
+  eq mkRequestVoteRequests(S0, RVReq, S1 Ss) = msg(S0, S1, RVReq) mkRequestVoteRequests(S0, RVReq, Ss) .
+  eq mkAppendEntriesRequests(S0, AEReq, empty) = empty .
+  eq mkAppendEntriesRequests(S0, AEReq, S1 Ss) = msg(S0, S1, AEReq) mkAppendEntriesRequests(S0, AEReq, Ss) .
+endfm
+
+fmod OCOM is
+  pr SOUP{ServerID} .
+  pr NETWORK .
+  pr ROLE .
+  sort OCom .
+  op term[_]:_ : ServerID Nat -> OCom [ctor] .
+  op role[_]:_ : ServerID Role -> OCom [ctor] .
+  op votedBy[_]:_ : ServerID ServerID -> OCom [ctor] .
+  op votedFor[_]:_ : ServerID Soup{ServerID} -> OCom [ctor] .
+  op servers:_ : Soup{ServerID} -> OCom [ctor] .
+  op network:_ : Soup{Msg} -> OCom [ctor] .
+endfm
+
+view OCom from TRIV to OCOM is
+  sort Elt to OCom .
+endv
+
+fmod CONFIG is
+  pr NAT .
+  pr SOUP{OCom} .
+  sort Config .
+  op {_} : Soup{OCom} -> Config [ctor] .
+  op n : -> Nat .
+  op majority : -> Nat .
+  op maxTerm : -> Nat .
+  op init : -> Config .
+  eq n = 3 .
+  eq maxTerm = 2 .
+  eq majority = n quo 2 + 1 .
+  eq init = {(term[s0]: 0) (term[s1]: 0) (term[s2]: 0)
+             (role[s0]: follower) (role[s1]: follower) (role[s2]: follower)
+             (votedBy[s0]: null) (votedBy[s1]: null) (votedBy[s2]: null)
+             (votedFor[s0]: empty) (votedFor[s1]: empty) (votedFor[s2]: empty)
+             (servers: (s0 s1 s2))
+             (network: empty)} .
+endfm
+
+mod RAFT is
+  pr CONFIG .
+  var R : Role .
+  vars T U : Nat .
+  vars S0 S1 S2 : ServerID .
+  var VB : ServerID .
+  vars VF0 VF1 : Soup{ServerID} .
+  var Ss : Soup{ServerID} .
+  var B : Bool .
+  var NW : Soup{Msg} .
+  var OCs : Soup{OCom} .
+
+  --- [follower timeout]: change role to cadidate
+  crl [followerTimeout] : {(term[S0]: T) (role[S0]: follower) OCs} =>
+                        {(term[S0]: T) (role[S0]: candidate) OCs}
+                        if T <= maxTerm .
+
+  --- [candidate timeout]: send vote request to everyone, term + 1
+  crl [cadidateTimeout] : {(term[S0]: T) (role[S0]: candidate) (servers: Ss) (votedBy[S0]: VB) (votedFor[S0]: VF0) (network: NW) OCs} =>
+                      {(term[S0]: T + 1) (role[S0]: candidate) (servers: Ss) (votedBy[S0]: S0) (votedFor[S0]: S0)
+                       (network: (NW mkRequestVoteRequests(S0, requestVoteRequest(T + 1, S0), Ss - S0))) OCs}
+                      if T + 1 <= maxTerm .
+
+  --- [follower receive vote]:
+  crl [followerRecvVoteRequest] : {(term[S0]: T) (role[S0]: follower) (votedBy[S0]: VB) (votedFor[S0]: null)
+                            (network: (msg(S1, S0, requestVoteRequest(U, S1)) NW)) OCs} =>
+                            {(term[S0]: if U > T then U else T fi) 
+                            (role[S0]: follower) 
+                            (votedBy[S0]: if (U > T or (VB == null and U == T)) then S1 else VB fi)
+                            (votedFor[S0]: null)
+                            (network:  if (U > T or (VB == null and U == T))
+                                        then (msg(S0, S1, requestVoteResponse(U, true)) NW) 
+                                        else (msg(S0, S1, requestVoteResponse(U, false)) NW) fi ) OCs}
+                            if T <= maxTerm .
+
+  --- [candidate/leader receive vote]:
+  crl [candidate&LeaderRecvVoteRequest] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0)
+                            (network: (msg(S1, S0, requestVoteRequest(U, S1)) NW)) OCs} =>
+                            {(term[S0]: if U > T then U else T fi) 
+                            (role[S0]: if U > T then follower else R fi) 
+                            (votedBy[S0]: if U > T then S1 else VB fi)
+                            (votedFor[S0]: if U > T then empty else VF0 fi)
+                            (network:  if (U > T)
+                                        then (msg(S0, S1, requestVoteResponse(U, true)) NW)
+                                        else (msg(S0, S1, requestVoteResponse(U, false)) NW) fi ) OCs}
+                            if T <= maxTerm and (R == candidate or R == leader).
+
+--- [candidate received majority reponse]: change your role to leader
+  crl [recvMajorityResponse] : {(term[S0]: T) (role[S0]: candidate) (votedBy[S0]: VB) (votedFor[S0]: VF0) 
+                            (network: (msg(S1, S0, requestVoteResponse(U, B)) NW)) OCs} =>
+                            {(term[S0]: T)
+                                (role[S0]: if length(VF1) >= majority then leader else candidate fi)
+                                (votedBy[S0]: if length(VF1) >= majority then null else VB fi)
+                                (votedFor[S0]: if length(VF1) >= majority then empty else VF1 fi)
+                                (network: (msg(S1, S0, requestVoteResponse(U, B)) NW)) OCs}
+                            if T <= maxTerm
+                            /\ VF1 := if T == U and B == true then (VF0 S1) else VF0 fi .
+
+--- [leader send leader request] 
+  crl [leaderSendLeaderRequest] : {(term[S0]: T) (role[S0]: leader) (servers: Ss) (network: NW) OCs} =>
+                                {(term[S0]: T) (role[S0]: leader) (servers: Ss)
+                                (network:(NW mkAppendEntriesRequests(S0, appendEntriesRequest(T, S0), Ss - S0))) OCs}
+                                if T <= maxTerm .
+
+
+--- [all recv leader request] 
+  crl [handleAppendEntriesRequest] : {(term[S0]: T) (role[S0]: R) (votedBy[S0]: VB) (votedFor[S0]: VF0)
+                                    (network: (msg(S1, S0, appendEntriesRequest(U, S1)) NW)) OCs} =>
+                                    {(term[S0]: if U >= T then U else T fi) 
+                                    (role[S0]: if U >= T then follower else R fi)
+                                    (votedBy[S0]: if U >= T then null else VB fi) 
+                                    (votedFor[S0]: if U >= T then empty else VF0 fi)
+                                    (network: if U >= T then NW else (msg(S1, S0, appendEntriesRequest(U, S1)) NW) fi ) OCs}
+                                    if T <= maxTerm .
+endm                                   
+--- search [1] in RAFT : init =>* {(role[S0]: leader) OCs} .
+--- search [1] in RAFT : init =>* {(term[S0]: T) (term[S1]: T) (role[S0]: leader) (role[S1]: leader) OCs} .
